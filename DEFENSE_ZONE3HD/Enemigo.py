@@ -1,4 +1,4 @@
-import pygame
+import pygame, time
 import math
 import random
 from typing import List, Tuple, Optional, Callable
@@ -9,8 +9,6 @@ COLORES_ENEMIGOS = {
     'basico': (255, 0, 0),
     'rapido': (255, 255, 0),
     'tanque': (64, 64, 64),
-    'volador': (0, 255, 255),
-    'jefe': (128, 0, 128)
 }
 
 class Enemigo(Objetos): 
@@ -30,9 +28,6 @@ class Enemigo(Objetos):
         self._desplazamiento_animacion = random.uniform(0, 2 * math.pi)
         self._esta_ralentizado = False
         self._duracion_ralentizacion = 0.0
-        self._esta_envenenado = False
-        self._daño_veneno = 0
-        self._duracion_veneno = 0.0
         self._modificador_daño = lambda daño: daño
         self._modificador_velocidad = lambda velocidad: velocidad
 
@@ -88,19 +83,6 @@ class Enemigo(Objetos):
     def _calcular_resistencia_daño(self, daño: int, tipo_daño: str) -> int:
         return daño
     
-    def curar(self, cantidad: int):
-        self._vida = min(self._vida_maxima, self._vida + cantidad)
-    
-    def aplicar_ralentizacion(self, duracion: float, factor_ralentizacion: float = 0.5):
-        self._esta_ralentizado = True
-        self._duracion_ralentizacion = duracion
-        self._modificador_velocidad = lambda velocidad: velocidad * factor_ralentizacion
-    
-    def aplicar_veneno(self, daño_por_tick: int, duracion: float):
-        self._esta_envenenado = True
-        self._daño_veneno = daño_por_tick
-        self._duracion_veneno = duracion
-    
     def obtener_velocidad_actual(self) -> float:
         velocidad_base = self._modificador_velocidad(self._velocidad)
         return velocidad_base
@@ -120,19 +102,6 @@ class Enemigo(Objetos):
             distancia_al_final = self.distancia_a_punto(self._ruta[-1])
             if distancia_al_final < 10:
                 self.activo = False
-    
-    def _actualizar_efectos_estado(self, dt: float):
-        if self._esta_ralentizado:
-            self._duracion_ralentizacion -= dt
-            if self._duracion_ralentizacion <= 0:
-                self._esta_ralentizado = False
-                self._modificador_velocidad = lambda velocidad: velocidad
-        if self._esta_envenenado:
-            self._duracion_veneno -= dt
-            if int(self._duracion_veneno) % 500 < dt:
-                self.recibir_daño(self._daño_veneno, "veneno")
-            if self._duracion_veneno <= 0:
-                self._esta_envenenado = False
     
     def _mover_a_lo_largo_de_la_ruta(self, dt: float):
         if self._indice_ruta >= len(self._ruta) - 1:
@@ -201,45 +170,7 @@ class Enemigo(Objetos):
         if self._esta_ralentizado:
             pygame.draw.circle(pantalla, (0, 0, 255), 
                              (int(self.x - 10), int(efecto_y)), 3)
-        if self._esta_envenenado:
-            pygame.draw.circle(pantalla, (0, 255, 0), 
-                             (int(self.x + 10), int(efecto_y)), 3)
 
-class EnemigoBasico(Enemigo):
-    def __init__(self, x: float, y: float):
-        super().__init__(x, y, vida=100, velocidad=50, recompensa=10, tipo_enemigo="basico")
-        self._tamaño = 15
-    
-    def _calcular_resistencia_daño(self, daño: int, tipo_daño: str) -> int:
-        return daño
-
-class EnemigoRapido(Enemigo):
-    def __init__(self, x: float, y: float):
-        super().__init__(x, y, vida=60, velocidad=80, recompensa=15, tipo_enemigo="rapido")
-        self._tamaño = 12
-        self._impulso_velocidad = lambda: random.uniform(0.9, 1.1)
-    
-    def obtener_velocidad_actual(self) -> float:
-        velocidad_base = super().obtener_velocidad_actual()
-        return velocidad_base * self._impulso_velocidad()
-    
-    def _calcular_resistencia_daño(self, daño: int, tipo_daño: str) -> int:
-        if tipo_daño == "explosivo":
-            return int(daño * 1.2)
-        return daño
-    
-    def _dibujar_cuerpo_enemigo(self, pantalla: pygame.Surface):
-        super()._dibujar_cuerpo_enemigo(pantalla)
-        posiciones_rastro = [
-            (self.x - 5, self.y),
-            (self.x - 10, self.y),
-            (self.x - 15, self.y)
-        ]
-        for i, pos in enumerate(posiciones_rastro):
-            alfa = 100 - (i * 30)
-            color_rastro = (*self._color[:3], max(0, alfa))
-            pygame.draw.circle(pantalla, self._color, (int(pos[0]), int(pos[1])), 
-                             max(1, self._tamaño - i * 2))
 
 class EnemigoTanque(Enemigo):
     def __init__(self, x: float, y: float):
@@ -247,6 +178,8 @@ class EnemigoTanque(Enemigo):
         self._tamaño = 20
         self._armadura = 5
         self._reduccion_armadura = lambda daño: max(1, daño - self._armadura)
+        self.image = pygame.imag.load("enemigo_tanque.png").convert_alpha()
+        self.rect = self.image.get_rect(center=(x, y))
     
     def _calcular_resistencia_daño(self, daño: int, tipo_daño: str) -> int:
         if tipo_daño == "perforante":
@@ -264,17 +197,11 @@ class EnemigoTanque(Enemigo):
     
     def _dibujar_cuerpo_enemigo(self, pantalla: pygame.Surface):
         super()._dibujar_cuerpo_enemigo(pantalla)
+        pantalla.blit(self.image, self.rect)
         radio_anillo_armadura = self._tamaño + 3
         pygame.draw.circle(pantalla, (128, 128, 128), 
                          (int(self.x), int(self.y)), radio_anillo_armadura, 2)
 
-class EnemigoVolador(Enemigo):
-    def __init__(self, x: float, y: float):
-        super().__init__(x, y, vida=80, velocidad=60, recompensa=20, tipo_enemigo="volador")
-        self._tamaño = 14
-        self._altitud = 0.0
-        self._velocidad_aleteo = 0.1
-        self._calculadora_altitud = lambda tiempo: math.sin(tiempo * self._velocidad_aleteo) * 3
     
     def _mover_a_lo_largo_de_la_ruta(self, dt: float):
         if not self._ruta:
@@ -318,10 +245,9 @@ class EnemigoVolador(Enemigo):
                            self._tamaño//2, 6))
 
 FABRICAS_ENEMIGOS = {
-    'basico': lambda x, y: EnemigoBasico(x, y),
-    'rapido': lambda x, y: EnemigoRapido(x, y),
+
     'tanque': lambda x, y: EnemigoTanque(x, y),
-    'volador': lambda x, y: EnemigoVolador(x, y)
+
 }
 
 def crear_enemigo(tipo_enemigo: str, x: float, y: float) -> Enemigo:
@@ -358,11 +284,8 @@ def obtener_enemigos_por_tipo(enemigos: List[Enemigo], tipo_enemigo: str) -> Lis
 
 if __name__ == "__main__":
     print("Probando Clases de Enemigos...")
-    basico = EnemigoBasico(100, 100)
-    rapido = EnemigoRapido(200, 200)
     tanque = EnemigoTanque(300, 300)
-    volador = EnemigoVolador(400, 400)
-    enemigos = [basico, rapido, tanque, volador]
+    enemigos = [tanque]
     for enemigo in enemigos:
         print(f"{enemigo.tipo_enemigo}: Vida={enemigo.vida}, Velocidad={enemigo.velocidad}, Recompensa={enemigo.recompensa}")
         enemigo.recibir_daño(50)
